@@ -155,7 +155,9 @@ namespace BackupManager
 
             foreach (var item in sourceFolders)
             {
-                CopyDirectory(item.Value, backupDir, configModel);
+                string sourceFolderName = Path.GetFileName(item.Value);
+
+                CopyDirectory(item.Value, Path.Combine(backupDir, sourceFolderName), configModel);
             }
         }
 
