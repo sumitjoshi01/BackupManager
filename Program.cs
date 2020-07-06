@@ -10,6 +10,8 @@ namespace BackupManager
 {
     class Program
     {
+        private static AppData applicationData;
+
         private static readonly string _sourceFolderPattern = @"^[a-zA-Z]:\\(((?![<>:""/\\|?*]).)+((?<![ .])\\)?)*$";
         private static readonly string _relativeFolderPtrn = @"^\\.+$";
         private static readonly string _fileExtensionPatern = @"^\.[\w]+$";
@@ -17,12 +19,19 @@ namespace BackupManager
 
         private static IEnumerable<string> ignoreExtensions;
         private static IEnumerable<string> ignoreFileNames;
-
-        static long fileCount = 0;
-        static long dirCount = 0;
+        private static long fileCount = 0;
+        private static long dirCount = 0;
 
         static void Main(string[] args)
         {
+            if (applicationData == null)
+            {
+                applicationData = AppData.Load();
+            }
+
+            applicationData.NoOfTimesAppRan = ++applicationData.NoOfTimesAppRan;
+            applicationData.LastRanTime = DateTime.Now.ToString("dd-MMM-yyyy hh:mm:ss tt");
+
             Console.WriteLine("------------------------------------------------------------------------------------------");
             Console.WriteLine("                          Backup Tool Created By Sumit Joshi                              ");
             Console.WriteLine("------------------------------------------------------------------------------------------");
@@ -44,6 +53,10 @@ namespace BackupManager
 
             TakeBackup(configList, backupDirectory);
 
+            applicationData.NoOfFilesBackedUp += fileCount;
+            applicationData.NoOfDirectoriesBackedUp += dirCount;
+            applicationData.Save();
+
             Console.WriteLine($"\nBackup Completed. Copied {fileCount} files and {dirCount} folders");
 
             if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
@@ -51,86 +64,6 @@ namespace BackupManager
                 Console.ReadKey();
             }
 
-        }
-
-        private static void CreateRootBackupDirIfNotExist(string backupDirectory)
-        {
-            if (!Directory.Exists(backupDirectory))
-            {
-                Directory.CreateDirectory(backupDirectory);
-            }
-        }
-
-        private static List<ConfigModel> LoadBackupConfigFile()
-        {
-            List<ConfigModel> configList = new List<ConfigModel>();
-
-            string backupConfigFileName = ConfigHelper.GetSetting<string>("BackupConfigFilePath");
-            var configLines = File.ReadAllLines(backupConfigFileName).ToList();
-
-            foreach (var line in configLines)
-            {
-                // ignore the comments in files
-                if (string.IsNullOrEmpty(line) || line.StartsWith("#"))
-                {
-                    continue;
-                }
-
-                var sourceFldrPtrnRslt = Regex.Match(line, _sourceFolderPattern);
-
-                if (sourceFldrPtrnRslt.Success)
-                {
-                    configList.Add(new ConfigModel
-                    {
-                        ConfigPattern = ConfigPatterns.SourceFolder,
-                        Value = line
-                    });
-
-                    continue;
-                }
-
-                var fileExtensionPtrnRslt = Regex.Match(line, _fileExtensionPatern);
-
-                if (fileExtensionPtrnRslt.Success)
-                {
-                    configList.Add(new ConfigModel
-                    {
-                        ConfigPattern = ConfigPatterns.IgnoreExtension,
-                        Value = line
-                    });
-
-                    continue;
-                }
-
-                var relativeFileNamePtrnRslt = Regex.Match(line, _relativeFileNamePtrn);
-
-                if (relativeFileNamePtrnRslt.Success)
-                {
-                    configList.Add(new ConfigModel
-                    {
-                        ConfigPattern = ConfigPatterns.IgnoreFileName,
-                        Value = line
-                    });
-
-                    continue;
-                }
-
-                var releativeFldrPtrnRslt = Regex.Match(line, _relativeFolderPtrn);
-
-                if (releativeFldrPtrnRslt.Success)
-                {
-                    configList.Add(new ConfigModel
-                    {
-                        ConfigPattern = ConfigPatterns.IgnoreFolder,
-                        Value = line
-                    });
-
-                    continue;
-                }
-
-            }
-
-            return configList;
         }
 
         private static void TakeBackup(List<ConfigModel> configModel, string backupDir)
@@ -153,17 +86,18 @@ namespace BackupManager
                 Console.WriteLine();
             }
 
-            foreach (var item in sourceFolders)
+            foreach (ConfigModel srcFolder in sourceFolders)
             {
-                string sourceFolderName = Path.GetFileName(item.Value);
+                string sourceFolderName = Path.GetFileName(srcFolder.Value);
 
-                CopyDirectory(item.Value, Path.Combine(backupDir, sourceFolderName), configModel);
+                CopyDirectory(srcFolder.Value, Path.Combine(backupDir, sourceFolderName), configModel);
             }
         }
 
         private static void CopyDirectory(string source, string destination, List<ConfigModel> configModel)
         {
-            var ignoreRelativeFolders = configModel.Where(C => C.ConfigPattern == ConfigPatterns.IgnoreFolder).Select(S => { return Path.Combine(source, S.Value.Substring(1)); });
+            IEnumerable<string> ignoreRelativeFolders = configModel.Where(C => C.ConfigPattern == ConfigPatterns.IgnoreFolder)
+                .Select(S => { return Path.Combine(source, S.Value.Substring(1)); });
 
             if (!Directory.Exists(destination))
             {
@@ -171,7 +105,7 @@ namespace BackupManager
                 Directory.CreateDirectory(destination);
             }
 
-            var filePaths = Directory.GetFiles(source);
+            string[] filePaths = Directory.GetFiles(source);
 
             foreach (string filePath in filePaths)
             {
@@ -212,6 +146,86 @@ namespace BackupManager
             }
         }
 
+        private static void CreateRootBackupDirIfNotExist(string backupDirectory)
+        {
+            if (!Directory.Exists(backupDirectory))
+            {
+                Directory.CreateDirectory(backupDirectory);
+            }
+        }
+
+        private static List<ConfigModel> LoadBackupConfigFile()
+        {
+            List<ConfigModel> configList = new List<ConfigModel>();
+
+            string backupConfigFileName = ConfigHelper.GetSetting<string>("BackupConfigFilePath");
+            List<string> configLines = File.ReadAllLines(backupConfigFileName).ToList();
+
+            foreach (string line in configLines)
+            {
+                // ignore the comments in files
+                if (string.IsNullOrEmpty(line) || line.StartsWith("#"))
+                {
+                    continue;
+                }
+
+                Match sourceFldrPtrnRslt = Regex.Match(line, _sourceFolderPattern);
+
+                if (sourceFldrPtrnRslt.Success)
+                {
+                    configList.Add(new ConfigModel
+                    {
+                        ConfigPattern = ConfigPatterns.SourceFolder,
+                        Value = line
+                    });
+
+                    continue;
+                }
+
+                Match fileExtensionPtrnRslt = Regex.Match(line, _fileExtensionPatern);
+
+                if (fileExtensionPtrnRslt.Success)
+                {
+                    configList.Add(new ConfigModel
+                    {
+                        ConfigPattern = ConfigPatterns.IgnoreExtension,
+                        Value = line
+                    });
+
+                    continue;
+                }
+
+                Match relativeFileNamePtrnRslt = Regex.Match(line, _relativeFileNamePtrn);
+
+                if (relativeFileNamePtrnRslt.Success)
+                {
+                    configList.Add(new ConfigModel
+                    {
+                        ConfigPattern = ConfigPatterns.IgnoreFileName,
+                        Value = line
+                    });
+
+                    continue;
+                }
+
+                Match releativeFldrPtrnRslt = Regex.Match(line, _relativeFolderPtrn);
+
+                if (releativeFldrPtrnRslt.Success)
+                {
+                    configList.Add(new ConfigModel
+                    {
+                        ConfigPattern = ConfigPatterns.IgnoreFolder,
+                        Value = line
+                    });
+
+                    continue;
+                }
+
+            }
+
+            return configList;
+        }
+
         private static BackupExistResult IsBackupExist(string backupDirectory)
         {
             BackupExistResult directoryExistResult = new BackupExistResult();
@@ -222,11 +236,11 @@ namespace BackupManager
             string today = DateTime.Today.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
             string _backupFolderNamePtrn = $"{today}(_(\\d+))?$";
 
-            var topDirResult = directoryInfo.GetDirectories("*", SearchOption.TopDirectoryOnly).OrderByDescending(O => O.CreationTimeUtc).Select(D => D.Name);
+            IEnumerable<string> topDirResult = directoryInfo.GetDirectories("*", SearchOption.TopDirectoryOnly).OrderByDescending(O => O.CreationTimeUtc).Select(D => D.Name);
 
             Match matchResult;
 
-            foreach (var dirName in topDirResult)
+            foreach (string dirName in topDirResult)
             {
                 matchResult = Regex.Match(dirName, _backupFolderNamePtrn);
 
