@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 
 namespace BackupManager
@@ -24,44 +25,51 @@ namespace BackupManager
 
         static void Main(string[] args)
         {
-            if (applicationData == null)
+            try
             {
-                applicationData = AppData.Load();
+                if (applicationData == null)
+                {
+                    applicationData = AppData.Load();
+                }
+
+                applicationData.NoOfTimesAppRan = ++applicationData.NoOfTimesAppRan;
+                applicationData.LastRanTime = DateTime.Now.ToString("dd-MMM-yyyy hh:mm:ss tt");
+
+                Console.WriteLine("------------------------------------------------------------------------------------------");
+                Console.WriteLine("                          Backup Tool Created By Sumit Joshi                              ");
+                Console.WriteLine("------------------------------------------------------------------------------------------");
+
+                string backupDirectory = ConfigHelper.GetSetting<string>("BackupFolder");
+
+                CreateRootBackupDirIfNotExist(backupDirectory);
+
+                BackupExistResult bkpExistRslt = IsBackupExist(backupDirectory);
+
+                if (bkpExistRslt.IsExist)
+                {
+                    Console.WriteLine($"Backup Already Exist At {bkpExistRslt.OldBackupDirName}. Creating New Backup At {bkpExistRslt.NewBackupDirName}\n");
+                }
+
+                backupDirectory = Path.Combine(backupDirectory, bkpExistRslt.NewBackupDirName);
+
+                List<ConfigModel> configList = LoadBackupConfigFile();
+
+                TakeBackup(configList, backupDirectory);
+
+                applicationData.NoOfFilesBackedUp += fileCount;
+                applicationData.NoOfDirectoriesBackedUp += dirCount;
+                applicationData.Save();
+
+                Console.WriteLine($"\nBackup Completed. Copied {fileCount} files and {dirCount} folders");
+
+                if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
+                {
+                    Console.ReadKey();
+                }
             }
-
-            applicationData.NoOfTimesAppRan = ++applicationData.NoOfTimesAppRan;
-            applicationData.LastRanTime = DateTime.Now.ToString("dd-MMM-yyyy hh:mm:ss tt");
-
-            Console.WriteLine("------------------------------------------------------------------------------------------");
-            Console.WriteLine("                          Backup Tool Created By Sumit Joshi                              ");
-            Console.WriteLine("------------------------------------------------------------------------------------------");
-
-            string backupDirectory = ConfigHelper.GetSetting<string>("BackupFolder");
-
-            CreateRootBackupDirIfNotExist(backupDirectory);
-
-            BackupExistResult bkpExistRslt = IsBackupExist(backupDirectory);
-
-            if (bkpExistRslt.IsExist)
+            catch (Exception ex)
             {
-                Console.WriteLine($"Backup Already Exist At {bkpExistRslt.OldBackupDirName}. Creating New Backup At {bkpExistRslt.NewBackupDirName}\n");
-            }
-
-            backupDirectory = Path.Combine(backupDirectory, bkpExistRslt.NewBackupDirName);
-
-            List<ConfigModel> configList = LoadBackupConfigFile();
-
-            TakeBackup(configList, backupDirectory);
-
-            applicationData.NoOfFilesBackedUp += fileCount;
-            applicationData.NoOfDirectoriesBackedUp += dirCount;
-            applicationData.Save();
-
-            Console.WriteLine($"\nBackup Completed. Copied {fileCount} files and {dirCount} folders");
-
-            if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
-            {
-                Console.ReadKey();
+                File.AppendAllText("ExceptionDetail.txt", DateTime.Now.ToString("dd/MM/yyyy hh:mm:ss tt \n") + ex.ToString() + "\n");
             }
 
         }
