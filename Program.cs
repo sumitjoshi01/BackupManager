@@ -70,6 +70,11 @@ namespace BackupManager
             catch (Exception ex)
             {
                 File.AppendAllText("ExceptionDetail.txt", DateTime.Now.ToString("dd/MM/yyyy hh:mm:ss tt \n") + ex.ToString() + "\n");
+                Console.WriteLine($"\n\n{ex}");
+                if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
+                {
+                    Console.ReadKey();
+                }
             }
 
         }
