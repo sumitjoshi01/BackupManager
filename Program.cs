@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Mail;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 
@@ -71,6 +73,8 @@ namespace BackupManager
             {
                 File.AppendAllText("ExceptionDetail.txt", DateTime.Now.ToString("dd/MM/yyyy hh:mm:ss tt \n") + ex.ToString() + "\n");
                 Console.WriteLine($"\n\n{ex}");
+                SendMail("", "Error Mail", ex.ToString());
+
                 if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
                 {
                     Console.ReadKey();
@@ -268,6 +272,16 @@ namespace BackupManager
             }
 
             return directoryExistResult;
+        }
+
+        private static void SendMail(string to, string subject, string body)
+        {
+            MailMessage mail = new MailMessage("", to, subject, body);
+            SmtpClient client = new SmtpClient("smtp.gmail.com");
+            client.Port = 587;
+            client.Credentials = new NetworkCredential("", "");
+            client.EnableSsl = true;
+            client.Send(mail);
         }
     }
 }
