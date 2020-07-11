@@ -6,7 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Mail;
-using System.Runtime.Versioning;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace BackupManager
@@ -63,22 +63,16 @@ namespace BackupManager
                 applicationData.Save();
 
                 Console.WriteLine($"\nBackup Completed. Copied {fileCount} files and {dirCount} folders");
-
-                if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
-                {
-                    Console.ReadKey();
-                }
             }
             catch (Exception ex)
             {
                 File.AppendAllText("ExceptionDetail.txt", DateTime.Now.ToString("dd/MM/yyyy hh:mm:ss tt \n") + ex.ToString() + "\n");
-                Console.WriteLine($"\n\n{ex}");
-                SendMail("", "Error Mail", ex.ToString());
+                SendErrorMail(ex);
+            }
 
-                if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
-                {
-                    Console.ReadKey();
-                }
+            if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
+            {
+                Console.ReadKey();
             }
 
         }
@@ -276,12 +270,44 @@ namespace BackupManager
 
         private static void SendMail(string to, string subject, string body)
         {
-            MailMessage mail = new MailMessage("", to, subject, body);
+            string from = "";
+            MailMessage mail = new MailMessage(from, to, subject, body);
             SmtpClient client = new SmtpClient("smtp.gmail.com");
             client.Port = 587;
-            client.Credentials = new NetworkCredential("", "");
+            client.Credentials = new NetworkCredential(from, "");
             client.EnableSsl = true;
             client.Send(mail);
+        }
+
+        private static void SendErrorMail(Exception ex)
+        {
+            if (!ConfigHelper.GetSetting<bool>("IsSendErrorMail"))
+            {
+                return;
+            }
+
+            StringBuilder mailBody = new StringBuilder(string.Empty);
+            mailBody.AppendLine($"Error Date Time: {DateTime.Now:dd-MM-yyyy hh:mm:ss tt}");
+            mailBody.AppendLine($"Error Message: {ex.Message}");
+            mailBody.AppendLine($"Stack Trace: {ex.StackTrace}");
+
+            if (ex.InnerException != null)
+            {
+                mailBody.AppendLine($"Inner Exception Details:");
+
+                if (!string.IsNullOrEmpty(ex.InnerException.Message))
+                {
+                    mailBody.AppendLine($"Inner Error Message: {ex.InnerException.Message}");
+                }
+
+                if (!string.IsNullOrEmpty(ex.InnerException.StackTrace))
+                {
+                    mailBody.AppendLine($"Inner Stack Trace: {ex.InnerException.StackTrace}");
+                }
+            }
+
+            string mailTo = ConfigHelper.GetSetting<string>("SendErrorMailTo");
+            SendMail(mailTo, "Error In PIE Backup QA Scheduled Task", mailBody.ToString());
         }
     }
 }
