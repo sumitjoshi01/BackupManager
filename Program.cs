@@ -27,9 +27,6 @@ namespace BackupManager
         static void Main(string[] args)
         {
 
-            SendMail("sumitjoshi_01@outlook.com", "Test smtp client", "This mail is sent automatically from a software program for testing purpose");
-            return;
-
             try
             {
                 if (applicationData == null)
