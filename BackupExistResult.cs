@@ -13,51 +13,37 @@ namespace BackupManager.Models
 
         }
 
-        public BackupExistResult(string dirName)
-        {
-            OldBackupDirName = dirName;
-        }
-
         public BackupExistResult(string dirName, int existingCount)
         {
-            OldBackupDirName = dirName;
-            OldBackupNo = existingCount;
+            TodaysBackupDirName = dirName;
+            TodaysBackupNo = existingCount;
         }
 
-        public string OldBackupDirName { get; set; }
-        public int OldBackupNo { get; set; }
+        public string TodaysBackupDirName { get; set; }
 
-        public bool IsExist
-        {
-            get { return !string.IsNullOrEmpty(OldBackupDirName); }
-        }
+        public int TodaysBackupNo { get; set; }
 
-        public int NewBackupNo
+        public bool IsTodaysBackupExist => !string.IsNullOrEmpty(TodaysBackupDirName);
+
+        public int NewBackupNo => TodaysBackupNo + 1;
+
+        public IEnumerable<string> ExistingBackupList { get; set; } = new List<string>();
+
+        public int TotalNoOfExistingBackups => ExistingBackupList.Count();
+
+        public string GetNewBackupDirName(string backupDirNamePatternDateFormat)
         {
-            get
+            if (string.IsNullOrEmpty(TodaysBackupDirName))
             {
-                return OldBackupNo + 1;
+                return DateTime.Today.ToString(backupDirNamePatternDateFormat);
             }
-        }
 
-        public string NewBackupDirName
-        {
-            get
+            if (TodaysBackupNo == 1)
             {
-                if (string.IsNullOrEmpty(OldBackupDirName))
-                {
-                    return DateTime.Today.ToString("dd-MM-yyyy");
-                }
-
-                if (OldBackupNo == 1)
-                {
-                    return DateTime.Today.ToString("dd-MM-yyyy") + "_2";
-                }
-
-
-                return OldBackupDirName.Replace($"_{OldBackupNo}", $"_{NewBackupNo}");
+                return DateTime.Today.ToString(backupDirNamePatternDateFormat) + "_2";
             }
-        }
 
+            return TodaysBackupDirName.Replace($"_{TodaysBackupNo}", $"_{NewBackupNo}");
+        }
     }
 }

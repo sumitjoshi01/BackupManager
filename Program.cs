@@ -1,7 +1,6 @@
 ﻿using BackupManager.Models;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -27,6 +26,10 @@ namespace BackupManager
 
         static void Main(string[] args)
         {
+
+            SendMail("sumitjoshi_01@outlook.com", "Test smtp client", "This mail is sent automatically from a software program for testing purpose");
+            return;
+
             try
             {
                 if (applicationData == null)
@@ -47,20 +50,26 @@ namespace BackupManager
 
                 BackupExistResult bkpExistRslt = IsBackupExist(backupDirectory);
 
-                if (bkpExistRslt.IsExist)
+                string newBackupDirName = bkpExistRslt.GetNewBackupDirName(ConfigHelper.GetSetting<string>("BkpFolderDatePattern"));
+                if (bkpExistRslt.IsTodaysBackupExist)
                 {
-                    Console.WriteLine($"Backup Already Exist At {bkpExistRslt.OldBackupDirName}. Creating New Backup At {bkpExistRslt.NewBackupDirName}\n");
+                    Console.WriteLine($"Backup Already Exist At {bkpExistRslt.TodaysBackupDirName}. Creating New Backup At {newBackupDirName}\n");
                 }
-
-                backupDirectory = Path.Combine(backupDirectory, bkpExistRslt.NewBackupDirName);
 
                 List<ConfigModel> configList = LoadBackupConfigFile();
 
-                TakeBackup(configList, backupDirectory);
+                string todaysBackupDir = Path.Combine(backupDirectory, newBackupDirName);
+                TakeBackup(configList, todaysBackupDir);
 
                 applicationData.NoOfFilesBackedUp += fileCount;
                 applicationData.NoOfDirectoriesBackedUp += dirCount;
                 applicationData.Save();
+
+                // Delete backup after taking backup
+                if (ConfigHelper.GetSetting<bool>("IsDelOldBackups"))
+                {
+                    DeleteExistingBackups(bkpExistRslt.ExistingBackupList);
+                }
 
                 Console.WriteLine($"\nBackup Completed. Copied {fileCount} files and {dirCount} folders");
             }
@@ -75,6 +84,42 @@ namespace BackupManager
                 Console.ReadKey();
             }
 
+        }
+
+        private static void DeleteExistingBackups(IEnumerable<string> existingBackupList)
+        {
+            var noOfBackupsToKeep = ConfigHelper.GetSetting<int>("DelOldBackupGreaterThan");
+
+            if (noOfBackupsToKeep <= 0)
+            {
+                return;
+            }
+
+            int existingBackupCnt = existingBackupList.Count();
+
+            if (existingBackupCnt < noOfBackupsToKeep)
+            {
+                return;
+            }
+
+            try
+            {
+                foreach (var dir in existingBackupList.Skip(noOfBackupsToKeep - 1))
+                {
+                    Directory.Delete(dir, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                string errorMessage = $"Error occured while deleting old backup folders:\r\nError Message: {ex.Message}\r\nStack Trace: {ex.StackTrace}";
+
+                using (TextWriter errorWriter = Console.Error)
+                {
+                    errorWriter.WriteLine(errorMessage);
+                }
+
+                SendErrorMail(ex);
+            }
         }
 
         private static void TakeBackup(List<ConfigModel> configModel, string backupDir)
@@ -243,40 +288,55 @@ namespace BackupManager
 
             DirectoryInfo directoryInfo = new DirectoryInfo(backupDirectory);
 
+            Regex backupDirDateRegex = new Regex(ConfigHelper.GetSetting<string>("BkpFolderDatePatternRegex")); // ^\d{2}-\d{2}-\d{4}(_(\d+))?$
 
-            string today = DateTime.Today.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
-            string _backupFolderNamePtrn = $"{today}(_(\\d+))?$";
+            IOrderedEnumerable<DirectoryInfo> topDirResult = directoryInfo.GetDirectories("*", SearchOption.TopDirectoryOnly)
+                .Where(D => backupDirDateRegex.IsMatch(D.Name))
+                .OrderByDescending(O => O.CreationTimeUtc);
 
-            IEnumerable<string> topDirResult = directoryInfo.GetDirectories("*", SearchOption.TopDirectoryOnly).OrderByDescending(O => O.CreationTimeUtc).Select(D => D.Name);
+            DirectoryInfo todaysBackupDir = topDirResult.FirstOrDefault(D => D.CreationTimeUtc.Date == DateTime.UtcNow.Date);
 
-            Match matchResult;
-
-            foreach (string dirName in topDirResult)
+            if (todaysBackupDir != null)
             {
-                matchResult = Regex.Match(dirName, _backupFolderNamePtrn);
-
-                if (matchResult.Success)
-                {
-                    directoryExistResult = new BackupExistResult(dirName);
-
-                    directoryExistResult.OldBackupNo = matchResult.Groups[2].Success ? Convert.ToInt32(matchResult.Groups[2].Value) : 1;
-
-                    break;
-                }
+                Match mtchRslt = backupDirDateRegex.Match(todaysBackupDir.Name);
+                int todaysBackupNo = mtchRslt.Groups[2].Success ? Convert.ToInt32(mtchRslt.Groups[2].Value) : 1;
+                directoryExistResult = new BackupExistResult(todaysBackupDir.Name, todaysBackupNo);
             }
+
+            directoryExistResult.ExistingBackupList = topDirResult.Select(D => D.FullName);
 
             return directoryExistResult;
         }
 
         private static void SendMail(string to, string subject, string body)
         {
-            string from = "";
-            MailMessage mail = new MailMessage(from, to, subject, body);
-            SmtpClient client = new SmtpClient("smtp.gmail.com");
-            client.Port = 587;
-            client.Credentials = new NetworkCredential(from, "");
-            client.EnableSsl = true;
-            client.Send(mail);
+            try
+            {
+                using (SmtpClient client = new SmtpClient())
+                {
+                    if (client.Credentials != null)
+                    {
+                        NetworkCredential credentials = client.Credentials.GetCredential(client.Host, client.Port, "smtp");
+
+                        if (credentials != null && !string.IsNullOrEmpty(credentials.UserName))
+                        {
+                            using (MailMessage mail = new MailMessage(credentials.UserName, to, subject, body))
+                            {
+                                client.Send(mail);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                using (TextWriter errorWriter = Console.Error)
+                {
+                    errorWriter.WriteLine("Error occured while sending mail");
+                    errorWriter.WriteLine($"Error Msg: {ex.Message}");
+                    errorWriter.WriteLine($"Stack Trace: {ex.StackTrace}");
+                }
+            }
         }
 
         private static void SendErrorMail(Exception ex)
@@ -307,7 +367,11 @@ namespace BackupManager
             }
 
             string mailTo = ConfigHelper.GetSetting<string>("SendErrorMailTo");
-            SendMail(mailTo, "Error In PIE Backup QA Scheduled Task", mailBody.ToString());
+
+            if (mailTo != null)
+            {
+                SendMail(mailTo, "Error in Backup Manager", mailBody.ToString());
+            }
         }
     }
 }
