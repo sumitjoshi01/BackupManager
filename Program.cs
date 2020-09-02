@@ -26,6 +26,8 @@ namespace BackupManager
 
         static void Main(string[] args)
         {
+            List<ConfigModel> configList = null;
+            string backupDirectory = string.Empty;
 
             try
             {
@@ -37,11 +39,9 @@ namespace BackupManager
                 applicationData.NoOfTimesAppRan = ++applicationData.NoOfTimesAppRan;
                 applicationData.LastRanTime = DateTime.Now.ToString("dd-MMM-yyyy hh:mm:ss tt");
 
-                Console.WriteLine("------------------------------------------------------------------------------------------");
-                Console.WriteLine("                          Backup Tool Created By Sumit Joshi                              ");
-                Console.WriteLine("------------------------------------------------------------------------------------------");
+                PrintDescriptionAndAuthorInfo();
 
-                string backupDirectory = ConfigHelper.GetSetting<string>("BackupFolder");
+                backupDirectory = ConfigHelper.GetSetting<string>("BackupFolder");
 
                 CreateRootBackupDirIfNotExist(backupDirectory);
 
@@ -53,9 +53,10 @@ namespace BackupManager
                     Console.WriteLine($"Backup Already Exist At {bkpExistRslt.TodaysBackupDirName}. Creating New Backup At {newBackupDirName}\n");
                 }
 
-                List<ConfigModel> configList = LoadBackupConfigFile();
+                configList = LoadBackupConfigFile();
 
                 string todaysBackupDir = Path.Combine(backupDirectory, newBackupDirName);
+
                 TakeBackup(configList, todaysBackupDir);
 
                 applicationData.NoOfFilesBackedUp += fileCount;
@@ -72,8 +73,40 @@ namespace BackupManager
             }
             catch (Exception ex)
             {
-                File.AppendAllText("ExceptionDetail.txt", DateTime.Now.ToString("dd/MM/yyyy hh:mm:ss tt \n") + ex.ToString() + "\n");
+                File.AppendAllText("ExceptionDetail.txt", $"{DateTime.Now:dd/MM/yyyy hh:ss:ss tt}\r\n{ex}\r\n");
                 SendErrorMail(ex);
+            }
+
+            if (ConfigHelper.GetSetting<bool>("SendBackupSuccessMail"))
+            {
+                string recepiant = ConfigHelper.GetSetting<string>("BackupSuccessMailRecepiants");
+
+                if (string.IsNullOrEmpty(recepiant))
+                {
+                    return;
+                }
+
+                string backupSuccessSubject = $"{ConfigHelper.GetSetting<string>("BackupSuccessMailSubject")} - {DateTime.Now:dd-MM-yyyy}";
+
+                IEnumerable<ConfigModel> srcDirCnt = configList.Where(C => C.ConfigPattern == ConfigPatterns.SourceFolder);
+
+                var foldersOrFolderTxt = srcDirCnt.Count() > 1 ? "folders" : "folder";
+
+                StringBuilder mailBody = new StringBuilder(string.Empty);
+
+                mailBody.AppendLine($"Backup of below {foldersOrFolderTxt} successfully created at {backupDirectory} on machine {Environment.MachineName}");
+
+                foreach (var item in srcDirCnt)
+                {
+                    mailBody.AppendLine(item.Value);
+                }
+
+                if (ConfigHelper.GetSetting<bool>("IsDelOldBackups"))
+                {
+                    mailBody.AppendLine($"\"Delete Previous Backups\" setting is enabled and only keeping last {ConfigHelper.GetSetting<int>("DelOldBackupGreaterThan")} backups.");
+                }
+
+                SendMail(recepiant, backupSuccessSubject, mailBody.ToString());
             }
 
             if (ConfigHelper.GetSetting<bool>("ShowConsoleAfterComplete"))
@@ -82,6 +115,8 @@ namespace BackupManager
             }
 
         }
+
+
 
         private static void DeleteExistingBackups(IEnumerable<string> existingBackupList)
         {
@@ -166,6 +201,7 @@ namespace BackupManager
 
                 if (!string.IsNullOrEmpty(fileExtension) && ignoreExtensions.Any(ignoreExt => string.Equals(ignoreExt, fileExtension, StringComparison.InvariantCultureIgnoreCase)))
                 {
+                    // keep source .log file list to delete from source.
                     continue;
                 }
 
@@ -291,7 +327,7 @@ namespace BackupManager
                 .Where(D => backupDirDateRegex.IsMatch(D.Name))
                 .OrderByDescending(O => O.CreationTimeUtc);
 
-            DirectoryInfo todaysBackupDir = topDirResult.FirstOrDefault(D => D.CreationTimeUtc.Date == DateTime.UtcNow.Date);
+            DirectoryInfo todaysBackupDir = topDirResult.FirstOrDefault(D => D.CreationTime.Date == DateTime.Now.Date);
 
             if (todaysBackupDir != null)
             {
@@ -369,6 +405,13 @@ namespace BackupManager
             {
                 SendMail(mailTo, "Error in Backup Manager", mailBody.ToString());
             }
+        }
+
+        private static void PrintDescriptionAndAuthorInfo()
+        {
+            Console.WriteLine("------------------------------------------------------------------------------------------");
+            Console.WriteLine("                          Backup Tool Created By Sumit Joshi                              ");
+            Console.WriteLine("------------------------------------------------------------------------------------------");
         }
     }
 }

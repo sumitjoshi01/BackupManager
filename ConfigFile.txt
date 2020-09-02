@@ -1,0 +1,7 @@
+D:\Profession\Tricky C# Programs
+D:\Profession\Repository\DockerDemo
+
+\log
+\loginfo
+
+.log
